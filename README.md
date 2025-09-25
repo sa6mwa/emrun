@@ -79,7 +79,8 @@ func main() {
     ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
     defer cancel()
 
-    // BusyBox accepts the applet as argv[0], followed by its own arguments.
+    // BusyBox expects the applet name as the first argument when invoked as
+    // `busybox <applet>`. The memfd path will still be argv[0].
     out, err := emrun.Run(ctx, busybox, "echo", "hello from busybox")
     if err != nil {
         log.Fatalf("busybox run failed: %v", err)
