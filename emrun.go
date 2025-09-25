@@ -80,21 +80,22 @@ func Open(executablePayload []byte) (Runnable, error) {
 }
 
 // Run executes the payload with ctx in exec.CommandContext with args
-// using (*exec.Cmd).CombinedOutput, returns combined output or error.
+// using (*exec.Cmd).CombinedOutput, returns combined output or
+// error. cmd.Stdin is nil, use RunIO if you want to pass data via
+// stdin.
 func Run(ctx context.Context, executablePayload []byte, arg ...string) ([]byte, error) {
 	f, err := Open(executablePayload)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	r := f.(*runnable)
-	cmd := exec.CommandContext(ctx, r.Name(), arg...)
-	return r.run(ctx, cmd, true)
+	runnable := f.(*runnable)
+	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
+	return runnable.run(ctx, cmd, true)
 }
 
 // RunIO is similar to Run but uses r for stdin and w for stdout and
-// stderr (unless nil, then it defaults to os.Stdin, os.Stdout and
-// os.Stderr respectively). Uses ctx for (*exec.Cmd).CommandContext.
+// stderr. Uses ctx for (*exec.Cmd).CommandContext.
 func RunIO(ctx context.Context, r io.Reader, w io.Writer, executablePayload []byte, arg ...string) error {
 	f, err := Open(executablePayload)
 	if err != nil {
@@ -103,18 +104,26 @@ func RunIO(ctx context.Context, r io.Reader, w io.Writer, executablePayload []by
 	defer f.Close()
 	runnable := f.(*runnable)
 	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
-	if r != nil {
-		cmd.Stdin = r
-	} else {
-		cmd.Stdin = os.Stdin
+	cmd.Stdin = r
+	cmd.Stdout = w
+	cmd.Stderr = w
+	_, err = runnable.run(ctx, cmd, false)
+	return err
+}
+
+// RunIOE is exactly like RunIO except with separate stdout and stderr
+// writers.
+func RunIOE(ctx context.Context, r io.Reader, stdout io.Writer, stderr io.Writer, executablePayload []byte, arg ...string) error {
+	f, err := Open(executablePayload)
+	if err != nil {
+		return err
 	}
-	if w != nil {
-		cmd.Stdout = w
-		cmd.Stderr = w
-	} else {
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-	}
+	defer f.Close()
+	runnable := f.(*runnable)
+	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
+	cmd.Stdin = r
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 	_, err = runnable.run(ctx, cmd, false)
 	return err
 }
@@ -128,7 +137,7 @@ func Do(ctx context.Context, payload string, arg ...string) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	r := f.(*runnable)
-	cmd := exec.CommandContext(ctx, r.Name(), arg...)
-	return r.run(ctx, cmd, true)
+	runnable := f.(*runnable)
+	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
+	return runnable.run(ctx, cmd, true)
 }

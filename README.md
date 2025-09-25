@@ -9,7 +9,8 @@ restrict anonymous execution.
 ## Features
 - Creates an anonymous executable file descriptor whose name is the payload
   SHA-256, making it easy to trace in `/proc/<pid>/fd`.
-- Runs raw byte payloads, inline scripts, or strings with `Run`, `RunIO`, and `Do`.
+- Runs raw byte payloads, inline scripts, or strings with `Run`, `RunIO`, `RunIOE`,
+  and `Do`.
 - Works seamlessly with Go's `//go:embed`, enabling you to ship extra binaries or
   shell helpers in a single distributable.
 - Automatically falls back to a temporary on-disk executable (deleted on close)
@@ -91,8 +92,8 @@ func main() {
 Notes:
 - The payload must be executable for Linux; if you embed an ELF binary, ensure
   it targets the same architecture as the host machine.
-- `Run` returns combined stdout and stderr; if you need separate streams, use
-  `RunIO` and provide distinct `io.Writer`s.
+- `Run` returns combined stdout and stderr. `RunIO` mirrors both streams into a
+  single writer, while `RunIOE` accepts separate writers for stdout and stderr.
 - When a fallback is required, the payload is written to a `0700` temporary
   file under the current user's default temp directory. `Close()` removes it.
 
@@ -142,7 +143,8 @@ fmt.Print(string(out))
 ```
 
 For more control, use `RunIO` with custom readers/writers. The example below
-pipes data in and captures combined output through a single buffer.
+pipes data in and captures combined output through a single buffer. Choose
+`RunIOE` when you need to keep stdout and stderr separate without shell tricks.
 
 ```go
 var combined bytes.Buffer

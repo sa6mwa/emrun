@@ -98,6 +98,26 @@ func TestRunIORoutesIO(t *testing.T) {
 	}
 }
 
+func TestRunIOERoutesSeparateWriters(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	payload := []byte("#!/bin/sh\nread line\nprintf 'out:%s\\n' \"$line\"\nprintf 'err:%s\\n' \"$line\" 1>&2\n")
+
+	var stdoutBuf bytes.Buffer
+	var stderrBuf bytes.Buffer
+	if err := RunIOE(ctx, strings.NewReader("value\n"), &stdoutBuf, &stderrBuf, payload); err != nil {
+		t.Fatalf("RunIOE returned error: %v", err)
+	}
+
+	if stdoutBuf.String() != "out:value\n" {
+		t.Fatalf("unexpected stdout: %q", stdoutBuf.String())
+	}
+	if stderrBuf.String() != "err:value\n" {
+		t.Fatalf("unexpected stderr: %q", stderrBuf.String())
+	}
+}
+
 func TestRunnableRunFallsBackToTempfile(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
