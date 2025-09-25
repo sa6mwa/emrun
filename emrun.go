@@ -71,7 +71,7 @@ func Open(executablePayload []byte) (Runnable, error) {
 	r.deleteOnClose = false // nothing to delete (in-memory file)
 	if _, err := r.file.Write(executablePayload); err != nil {
 		if cerr := r.Close(); cerr != nil {
-			return nil, fmt.Errorf("unable to write payload: %w, unable to close memfd: %w", err, cerr)
+			return nil, fmt.Errorf("unable to write payload: %w; unable to close memfd: %w", err, cerr)
 		}
 		return nil, fmt.Errorf("unable to write payload: %w", err)
 	}

@@ -63,7 +63,7 @@ func (r *runnable) switchToTemporaryFile() error {
 	r.deleteOnClose = true
 	if _, err := r.file.Write(r.payload); err != nil {
 		if cerr := r.Close(); cerr != nil {
-			return fmt.Errorf("unable to write to temporary file: %w, unable to close temporary file: %w", err, cerr)
+			return fmt.Errorf("unable to write to temporary file: %w; unable to close temporary file: %w", err, cerr)
 		}
 		return fmt.Errorf("unable to write to temporary file: %w", err)
 	}
@@ -72,7 +72,7 @@ func (r *runnable) switchToTemporaryFile() error {
 	r.closer = nil
 	if err := os.Chmod(r.name, 0o0700); err != nil {
 		if cerr := r.Close(); cerr != nil {
-			return fmt.Errorf("unable to chmod temporary file: %w, unable to close temporary file: %w", err, cerr)
+			return fmt.Errorf("unable to chmod temporary file: %w; unable to close temporary file: %w", err, cerr)
 		}
 		return fmt.Errorf("chmod +x: %w", err)
 	}
@@ -100,7 +100,7 @@ func (r *runnable) Close() error {
 	if r.deleteOnClose {
 		if err := os.Remove(r.name); err != nil {
 			if fileCloseErr != nil {
-				return fmt.Errorf("close error: %w, remove error: %w", fileCloseErr, err)
+				return fmt.Errorf("close error: %w; remove error: %w", fileCloseErr, err)
 			}
 			return err
 		}
