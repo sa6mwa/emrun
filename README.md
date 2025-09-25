@@ -159,9 +159,14 @@ log.Printf("script said %q", combined.String())
    `/proc/self/fd/<n>`.
 2. `Run`, `RunIO`, and `Do` call `Open`, execute using `exec.CommandContext`,
    and close the file descriptor after the process exits.
+3. If the kernel refuses to execute the anonymous file (for example SELinux or
+   AppArmor report `EACCES`/`EPERM`), the payload is atomically copied to a
+   secure temporary file, permissioned `0700`, and the command is retried from
+   disk. Temporary files are removed automatically on `Close()`.
 
-Because the backing file exists only in memory, nothing ever hits disk. The file
-descriptor is closed immediately after execution, keeping the footprint small.
+Because the backing file exists only in memory in the common case, nothing ever
+hits disk. The file descriptor is closed immediately after successful execution,
+keeping the footprint small.
 
 ## Caveats and Platform Notes
 - **SELinux / AppArmor**: Some distributions ship with policies that forbid
