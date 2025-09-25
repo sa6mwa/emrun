@@ -2,8 +2,9 @@
 
 Run embedded executables and scripts straight from anonymous memory on Linux and
 Android. `emrun` wraps `memfd_create(2)` so you can bundle auxiliary tooling and
-scripts inside a Go binary, execute them without touching disk, and keep the
-package fully self-contained.
+scripts inside a Go binary, execute them without touching disk in the common
+case, and keep the package fully self-contained even when hardened kernels
+restrict anonymous execution.
 
 ## Features
 - Creates an anonymous executable file descriptor whose name is the payload
@@ -11,6 +12,8 @@ package fully self-contained.
 - Runs raw byte payloads, inline scripts, or strings with `Run`, `RunIO`, and `Do`.
 - Works seamlessly with Go's `//go:embed`, enabling you to ship extra binaries or
   shell helpers in a single distributable.
+- Automatically falls back to a temporary on-disk executable (deleted on close)
+  when security policies forbid running the anonymous file descriptor.
 
 ## Installation
 ```
@@ -90,6 +93,8 @@ Notes:
   it targets the same architecture as the host machine.
 - `Run` returns combined stdout and stderr; if you need separate streams, use
   `RunIO` and provide distinct `io.Writer`s.
+- When a fallback is required, the payload is written to a `0700` temporary
+  file under the current user's default temp directory. `Close()` removes it.
 
 ## Embedding Scripts With `//go:embed`
 Shell scripts can also be embedded, which keeps helper logic tidy and separate
@@ -172,8 +177,9 @@ keeping the footprint small.
 - **SELinux / AppArmor**: Some distributions ship with policies that forbid
   executing anonymous memory (for example `execmem`, `execmod`, or
   `memfd_exec`). Tight policies may block the child process from starting or log
-  AVC denials. When targeting locked-down systems, test under the same policy
-  and be prepared to ship an alternative fallback (e.g. writing to `/tmp`).
+  AVC denials. `emrun` detects permission denials and retries from a temporary
+  file automatically, but you should still validate under the target policy and
+  ensure the temp directory is acceptable for your threat model.
 - **Android**: Android kernels support `memfd_create`, but application sandboxes
   and `seccomp` filters can forbid executing anonymous memory. Apps running in
   the default untrusted app domain may hit permission denials, so verify on the
