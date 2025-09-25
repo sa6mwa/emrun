@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -28,6 +29,8 @@ func sha256hex(data []byte) string {
 
 type Runnable interface {
 	io.Closer
+	io.Reader
+	io.Seeker
 	Name() string
 	//Stat() (fs.FileInfo, error)
 	IsMemfd() bool
@@ -43,10 +46,7 @@ type runnable struct {
 }
 
 func (r *runnable) IsMemfd() bool {
-	if !strings.HasPrefix("/proc/self/fd", r.name) {
-		return true
-	}
-	return false
+	return strings.HasPrefix(r.name, "/proc/self/fd/")
 }
 
 func (r *runnable) switchToTemporaryFile() error {
@@ -112,26 +112,77 @@ func (r *runnable) Close() error {
 	return fileCloseErr
 }
 
+func (r *runnable) Read(p []byte) (int, error) {
+	if r.file == nil {
+		return 0, os.ErrInvalid
+	}
+	return r.file.Read(p)
+}
+
+func (r *runnable) Seek(offset int64, whence int) (int64, error) {
+	if r.file == nil {
+		return 0, os.ErrInvalid
+	}
+	return r.file.Seek(offset, whence)
+}
+
 func (r *runnable) run(ctx context.Context, cmd *exec.Cmd, combinedOutput bool) ([]byte, error) {
-	var b []byte
-	var err error
-	if combinedOutput {
-		b, err = cmd.CombinedOutput()
-	} else {
-		err = cmd.Run()
-	}
-	if err != nil {
-		if !r.IsMemfd() {
-			return nil, err
+	runOnce := func(c *exec.Cmd) ([]byte, error) {
+		if combinedOutput {
+			return c.CombinedOutput()
 		}
-		// if error is permission denied, something indicating that
-		// the command was not actually run because the OS said no, we
-		// need to catch it here. If it's a permission issue and not a return or exit code from the execution,
-		// then do switch to tempfile (as it's a memfd according at this point according to the check above)...
-
-		// if err := switchToTemporaryFile(); err != nil {}
-
+		return nil, c.Run()
 	}
+	b, err := runOnce(cmd)
+	if err == nil {
+		return b, nil
+	}
+	if !r.IsMemfd() {
+		return b, err
+	}
+	isPermissionErr := func(runErr error) bool {
+		if errors.Is(runErr, os.ErrPermission) {
+			return true
+		}
+		var pathErr *os.PathError
+		if errors.As(runErr, &pathErr) {
+			return errors.Is(pathErr.Err, os.ErrPermission) || errors.Is(pathErr.Err, unix.EACCES) || errors.Is(pathErr.Err, unix.EPERM)
+		}
+		var execErr *exec.Error
+		if errors.As(runErr, &execErr) {
+			return errors.Is(execErr.Err, os.ErrPermission) || errors.Is(execErr.Err, unix.EACCES) || errors.Is(execErr.Err, unix.EPERM)
+		}
+		return errors.Is(runErr, unix.EACCES) || errors.Is(runErr, unix.EPERM)
+	}
+
+	if !isPermissionErr(err) {
+		return b, err
+	}
+
+	if serr := r.switchToTemporaryFile(); serr != nil {
+		return b, fmt.Errorf("memfd execution failed: %w; fallback to tempfile failed: %w", err, serr)
+	}
+
+	origArgs := slices.Clone(cmd.Args)
+	if len(origArgs) == 0 {
+		origArgs = append(origArgs, r.Name())
+	} else {
+		origArgs[0] = r.Name()
+	}
+	fallback := exec.CommandContext(ctx, r.Name())
+	fallback.Args = origArgs
+	fallback.Path = origArgs[0]
+	fallback.Env = slices.Clone(cmd.Env)
+	fallback.Dir = cmd.Dir
+	fallback.Stdin = cmd.Stdin
+	fallback.Stdout = cmd.Stdout
+	fallback.Stderr = cmd.Stderr
+	if cmd.ExtraFiles != nil {
+		fallback.ExtraFiles = slices.Clone(cmd.ExtraFiles)
+	}
+	fallback.SysProcAttr = cmd.SysProcAttr
+	fallback.WaitDelay = cmd.WaitDelay
+	return runOnce(fallback)
 }
 
 // Open attempts to create a memory file descriptor using
@@ -176,7 +227,7 @@ func Open(executablePayload []byte) (Runnable, error) {
 	r.closer = f
 	r.deleteOnClose = false // nothing to delete (in-memory file)
 	if _, err := r.file.Write(executablePayload); err != nil {
-		if cerr := r.Close(); err != nil {
+		if cerr := r.Close(); cerr != nil {
 			return nil, fmt.Errorf("unable to write payload: %w, unable to close memfd: %w", err, cerr)
 		}
 		return nil, fmt.Errorf("unable to write payload: %w", err)
@@ -193,7 +244,9 @@ func Run(ctx context.Context, executablePayload []byte, arg ...string) ([]byte, 
 		return nil, err
 	}
 	defer f.Close()
-	return exec.CommandContext(ctx, f.Name(), arg...).CombinedOutput()
+	r := f.(*runnable)
+	cmd := exec.CommandContext(ctx, r.Name(), arg...)
+	return r.run(ctx, cmd, true)
 }
 
 // RunIO is similar to Run but uses r for stdin and w for stdout and
@@ -205,7 +258,8 @@ func RunIO(ctx context.Context, r io.Reader, w io.Writer, executablePayload []by
 		return err
 	}
 	defer f.Close()
-	cmd := exec.CommandContext(ctx, f.Name(), arg...)
+	runnable := f.(*runnable)
+	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
 	if r != nil {
 		cmd.Stdin = r
 	} else {
@@ -218,11 +272,8 @@ func RunIO(ctx context.Context, r io.Reader, w io.Writer, executablePayload []by
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 	}
-
-	if err := cmd.Run(); err != nil {
-	}
-
-	return cmd.Run()
+	_, err = runnable.run(ctx, cmd, false)
+	return err
 }
 
 // Do is intended to run shebang scripts inline or from string
@@ -234,5 +285,7 @@ func Do(ctx context.Context, payload string, arg ...string) ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return exec.CommandContext(ctx, f.Name(), arg...).CombinedOutput()
+	r := f.(*runnable)
+	cmd := exec.CommandContext(ctx, r.Name(), arg...)
+	return r.run(ctx, cmd, true)
 }
