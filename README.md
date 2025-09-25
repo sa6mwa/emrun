@@ -2,15 +2,19 @@
 
 Run embedded executables and scripts straight from anonymous memory on Linux and
 Android. `emrun` wraps `memfd_create(2)` so you can bundle auxiliary tooling and
-scripts inside a Go binary, execute them without touching disk, and keep the
-package fully self-contained.
+scripts inside a Go binary, execute them without touching disk in the common
+case, and keep the package fully self-contained even when hardened kernels
+restrict anonymous execution.
 
 ## Features
 - Creates an anonymous executable file descriptor whose name is the payload
   SHA-256, making it easy to trace in `/proc/<pid>/fd`.
-- Runs raw byte payloads, inline scripts, or strings with `Run`, `RunIO`, and `Do`.
+- Runs raw byte payloads, inline scripts, or strings with `Run`, `RunIO`, `RunIOE`,
+  and `Do`.
 - Works seamlessly with Go's `//go:embed`, enabling you to ship extra binaries or
   shell helpers in a single distributable.
+- Automatically falls back to a temporary on-disk executable (deleted on close)
+  when security policies forbid running the anonymous file descriptor.
 
 ## Installation
 ```
@@ -88,8 +92,10 @@ func main() {
 Notes:
 - The payload must be executable for Linux; if you embed an ELF binary, ensure
   it targets the same architecture as the host machine.
-- `Run` returns combined stdout and stderr; if you need separate streams, use
-  `RunIO` and provide distinct `io.Writer`s.
+- `Run` returns combined stdout and stderr. `RunIO` mirrors both streams into a
+  single writer, while `RunIOE` accepts separate writers for stdout and stderr.
+- When a fallback is required, the payload is written to a `0700` temporary
+  file under the current user's default temp directory. `Close()` removes it.
 
 ## Embedding Scripts With `//go:embed`
 Shell scripts can also be embedded, which keeps helper logic tidy and separate
@@ -137,7 +143,8 @@ fmt.Print(string(out))
 ```
 
 For more control, use `RunIO` with custom readers/writers. The example below
-pipes data in and captures combined output through a single buffer.
+pipes data in and captures combined output through a single buffer. Choose
+`RunIOE` when you need to keep stdout and stderr separate without shell tricks.
 
 ```go
 var combined bytes.Buffer
@@ -159,16 +166,22 @@ log.Printf("script said %q", combined.String())
    `/proc/self/fd/<n>`.
 2. `Run`, `RunIO`, and `Do` call `Open`, execute using `exec.CommandContext`,
    and close the file descriptor after the process exits.
+3. If the kernel refuses to execute the anonymous file (for example SELinux or
+   AppArmor report `EACCES`/`EPERM`), the payload is atomically copied to a
+   secure temporary file, permissioned `0700`, and the command is retried from
+   disk. Temporary files are removed automatically on `Close()`.
 
-Because the backing file exists only in memory, nothing ever hits disk. The file
-descriptor is closed immediately after execution, keeping the footprint small.
+Because the backing file exists only in memory in the common case, nothing ever
+hits disk. The file descriptor is closed immediately after successful execution,
+keeping the footprint small.
 
 ## Caveats and Platform Notes
 - **SELinux / AppArmor**: Some distributions ship with policies that forbid
   executing anonymous memory (for example `execmem`, `execmod`, or
   `memfd_exec`). Tight policies may block the child process from starting or log
-  AVC denials. When targeting locked-down systems, test under the same policy
-  and be prepared to ship an alternative fallback (e.g. writing to `/tmp`).
+  AVC denials. `emrun` detects permission denials and retries from a temporary
+  file automatically, but you should still validate under the target policy and
+  ensure the temp directory is acceptable for your threat model.
 - **Android**: Android kernels support `memfd_create`, but application sandboxes
   and `seccomp` filters can forbid executing anonymous memory. Apps running in
   the default untrusted app domain may hit permission denials, so verify on the
