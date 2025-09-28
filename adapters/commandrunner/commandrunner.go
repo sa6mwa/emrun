@@ -1,12 +1,10 @@
 package commandrunner
 
-import "os/exec"
+import (
+	"os/exec"
 
-// Runner abstracts command execution so tests can provide mocks while production
-// code can delegate to os/exec.
-type Runner interface {
-	Run(cmd *exec.Cmd, combinedOutput bool) ([]byte, error)
-}
+	"github.com/sa6mwa/emrun/port"
+)
 
 // DefaultRunner executes commands using os/exec directly.
 type DefaultRunner struct{}
@@ -20,4 +18,4 @@ func (DefaultRunner) Run(cmd *exec.Cmd, combinedOutput bool) ([]byte, error) {
 }
 
 // Default is a shared instance of DefaultRunner.
-var Default Runner = DefaultRunner{}
+var Default port.CommandRunner = DefaultRunner{}

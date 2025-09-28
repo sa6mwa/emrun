@@ -1,3 +1,6 @@
+//go:build linux || android
+// +build linux android
+
 package emrun
 
 import (
@@ -15,14 +18,6 @@ import (
 
 	"github.com/sa6mwa/emrun/adapters/mockrunner"
 )
-
-func TestSHA256Hex(t *testing.T) {
-	got := sha256hex([]byte("test"))
-	const want = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
-	if got != want {
-		t.Fatalf("sha256hex mismatch: got %q want %q", got, want)
-	}
-}
 
 func TestOpenCreatesExecutableMemfd(t *testing.T) {
 	payload := []byte("#!/bin/sh\necho open-test\n")
@@ -147,7 +142,7 @@ func TestRunnableRunFallsBackToTempfile(t *testing.T) {
 	)
 	r.runner = mock
 	cmd := exec.CommandContext(ctx, memfdName)
-	out, runErr := r.run(ctx, cmd, true)
+	out, runErr := r.Run(ctx, cmd, true)
 	if runErr != nil {
 		t.Fatalf("run returned error: %v", runErr)
 	}
@@ -188,7 +183,7 @@ func TestRunnableRunFallbackSwitchFailure(t *testing.T) {
 	})
 
 	cmd := exec.CommandContext(ctx, r.Name())
-	if _, err := r.run(ctx, cmd, true); err == nil {
+	if _, err := r.Run(ctx, cmd, true); err == nil {
 		t.Fatalf("expected error, got nil")
 	} else if !errors.Is(err, ERR_PAYLOAD_IS_EMPTY) {
 		t.Fatalf("unexpected error: %v", err)

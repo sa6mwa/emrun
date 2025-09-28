@@ -1,31 +1,24 @@
 //go:build linux || android
+// +build linux android
 
+// Run embedded executables and scripts straight from anonymous memory on Linux
+// and Android. emrun wraps memfd_create(2) so you can bundle auxiliary tooling
+// and scripts inside a Go binary, execute them without touching disk in the
+// common case, and keep the package fully self-contained even when hardened
+// kernels restrict anonymous execution.
 package emrun
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 
 	"github.com/sa6mwa/emrun/adapters/commandrunner"
+	"github.com/sa6mwa/emrun/port"
 	"golang.org/x/sys/unix"
 )
-
-var (
-	ERR_PAYLOAD_IS_EMPTY   error = errors.New("payload is empty")
-	ERR_NOT_AN_INMEMORY_FD error = errors.New("not an in-memory file descriptor")
-)
-
-type Runnable interface {
-	io.Closer
-	io.Reader
-	io.Seeker
-	Name() string
-	IsMemfd() bool
-}
 
 // Open attempts to create a memory file descriptor using
 // memfd_create(2), name will be a sha256 hash of the payload that
@@ -45,10 +38,11 @@ type Runnable interface {
 //	if err != nil {
 //		panic(err)
 //	}
+//	defer f.Close()
 //	cmd := exec.Command(f.Name(), "--version")
 //	//...
 //	cmd.Run()
-func Open(executablePayload []byte) (Runnable, error) {
+func Open(executablePayload []byte) (port.Runnable, error) {
 	r := &runnable{
 		payload:   executablePayload,
 		sha256hex: sha256hex(executablePayload),
@@ -91,7 +85,7 @@ func Run(ctx context.Context, executablePayload []byte, arg ...string) ([]byte, 
 	defer f.Close()
 	runnable := f.(*runnable)
 	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
-	return runnable.run(ctx, cmd, true)
+	return runnable.Run(ctx, cmd, true)
 }
 
 // RunIO is similar to Run but uses r for stdin and w for stdout and
@@ -107,7 +101,7 @@ func RunIO(ctx context.Context, r io.Reader, w io.Writer, executablePayload []by
 	cmd.Stdin = r
 	cmd.Stdout = w
 	cmd.Stderr = w
-	_, err = runnable.run(ctx, cmd, false)
+	_, err = runnable.Run(ctx, cmd, false)
 	return err
 }
 
@@ -124,7 +118,7 @@ func RunIOE(ctx context.Context, r io.Reader, stdout io.Writer, stderr io.Writer
 	cmd.Stdin = r
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
-	_, err = runnable.run(ctx, cmd, false)
+	_, err = runnable.Run(ctx, cmd, false)
 	return err
 }
 
@@ -139,5 +133,5 @@ func Do(ctx context.Context, payload string, arg ...string) ([]byte, error) {
 	defer f.Close()
 	runnable := f.(*runnable)
 	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
-	return runnable.run(ctx, cmd, true)
+	return runnable.Run(ctx, cmd, true)
 }

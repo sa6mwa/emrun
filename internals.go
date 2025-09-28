@@ -1,9 +1,10 @@
+//go:build linux || android
+// +build linux android
+
 package emrun
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -13,13 +14,9 @@ import (
 	"strings"
 
 	"github.com/sa6mwa/emrun/adapters/commandrunner"
+	"github.com/sa6mwa/emrun/port"
 	"golang.org/x/sys/unix"
 )
-
-func sha256hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
 
 type runnable struct {
 	payload       []byte
@@ -28,7 +25,7 @@ type runnable struct {
 	name          string
 	sha256hex     string
 	deleteOnClose bool
-	runner        commandrunner.Runner
+	runner        port.CommandRunner
 }
 
 func (r *runnable) IsMemfd() bool {
@@ -97,7 +94,7 @@ func (r *runnable) Close() error {
 		fileCloseErr = r.file.Close()
 		r.closer = nil
 	}
-	if r.deleteOnClose {
+	if r.deleteOnClose && r.name != "" {
 		if err := os.Remove(r.name); err != nil {
 			if fileCloseErr != nil {
 				return fmt.Errorf("close error: %w; remove error: %w", fileCloseErr, err)
@@ -123,10 +120,10 @@ func (r *runnable) Seek(offset int64, whence int) (int64, error) {
 	return r.file.Seek(offset, whence)
 }
 
-// run executes the command with the provided context, handling
-// fallback to a temporary file if permission errors are encountered
-// with the in-memory file descriptor.
-func (r *runnable) run(ctx context.Context, cmd *exec.Cmd, combinedOutput bool) ([]byte, error) {
+// Run executes the command with the provided context, handling fallback to a
+// temporary file if permission errors are encountered with the in-memory file
+// descriptor.
+func (r *runnable) Run(ctx context.Context, cmd *exec.Cmd, combinedOutput bool) ([]byte, error) {
 	if r.runner == nil {
 		r.runner = commandrunner.Default
 	}
@@ -165,6 +162,9 @@ func (r *runnable) run(ctx context.Context, cmd *exec.Cmd, combinedOutput bool) 
 		origArgs = append(origArgs, r.Name())
 	} else {
 		origArgs[0] = r.Name()
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 	fallback := exec.CommandContext(ctx, r.Name())
 	fallback.Args = origArgs

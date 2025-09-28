@@ -1,9 +1,11 @@
 package mockrunner
 
 import (
+	"os/exec"
+	"slices"
 	"sync"
 
-	"os/exec"
+	"github.com/sa6mwa/emrun/port"
 )
 
 // Behavior represents a single command execution path for the mock runner.
@@ -18,9 +20,11 @@ type Runner struct {
 	Combined  []bool
 }
 
+var _ port.CommandRunner = (*Runner)(nil)
+
 // New constructs a Runner that will invoke behaviors sequentially for each call.
 func New(behaviors ...Behavior) *Runner {
-	return &Runner{behaviors: append([]Behavior(nil), behaviors...)}
+	return &Runner{behaviors: slices.Clone(behaviors)}
 }
 
 // Run records the call metadata and dispatches to the next behavior.
