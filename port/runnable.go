@@ -17,3 +17,10 @@ type Runnable interface {
 	IsMemfd() bool
 	Run(ctx context.Context, cmd *exec.Cmd, combinedOutput bool) ([]byte, error)
 }
+
+// BackgroundRunnable describes the runnable contract required to start a
+// background process via StartBackground.
+type BackgroundRunnable interface {
+	Runnable
+	StartBackground(ctx context.Context, cmd *exec.Cmd, combinedOutput bool) (*exec.Cmd, CommandCapture, error)
+}

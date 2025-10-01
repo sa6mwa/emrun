@@ -10,6 +10,9 @@ package emrun
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -18,6 +21,13 @@ import (
 	"github.com/sa6mwa/emrun/adapters/commandrunner"
 	"github.com/sa6mwa/emrun/port"
 	"golang.org/x/sys/unix"
+)
+
+type Runnable = port.Runnable
+
+var (
+	ERR_PAYLOAD_IS_EMPTY   error = errors.New("payload is empty")
+	ERR_NOT_AN_INMEMORY_FD error = errors.New("not an in-memory file descriptor")
 )
 
 // Open attempts to create a memory file descriptor using
@@ -42,10 +52,12 @@ import (
 //	cmd := exec.Command(f.Name(), "--version")
 //	//...
 //	cmd.Run()
-func Open(executablePayload []byte) (port.Runnable, error) {
+func Open(executablePayload []byte) (Runnable, error) {
+	sum := sha256.Sum256(executablePayload)
 	r := &runnable{
 		payload:   executablePayload,
-		sha256hex: sha256hex(executablePayload),
+		sha256hex: hex.EncodeToString(sum[:]),
+		sha256:    sum,
 		runner:    commandrunner.Default,
 	}
 	fd, err := unix.MemfdCreate(r.sha256hex, 0)
@@ -134,4 +146,55 @@ func Do(ctx context.Context, payload string, arg ...string) ([]byte, error) {
 	runnable := f.(*runnable)
 	cmd := exec.CommandContext(ctx, runnable.Name(), arg...)
 	return runnable.Run(ctx, cmd, true)
+}
+
+// RunBG launches the payload in the background and returns a Background handle
+// that exposes the running context. Example usage:
+//
+//	bg, err := emrun.RunBG(ctx, payload, "--flag")
+//	if err != nil {
+//		return err
+//	}
+//	defer bg.Cancel()
+//	select {
+//	case res := <-bg.Done:
+//		if res.Error != nil {
+//			return res.Error
+//		}
+//	case <-ctx.Done():
+//		return ctx.Err()
+//	}
+func RunBG(ctx context.Context, executablePayload []byte, arg ...string) (*Background, error) {
+	r, err := Open(executablePayload)
+	if err != nil {
+		return nil, err
+	}
+	return StartBackground(ctx, r.(*runnable), arg, nil, nil, nil, true)
+}
+
+// RunIOBG behaves like RunBG but wires the provided reader/writer to stdin and
+// combined stdout/stderr. The returned Result has a nil CombinedOutput since
+// output is streamed to writer.
+func RunIOBG(ctx context.Context, reader io.Reader, writer io.Writer, executablePayload []byte, arg ...string) (*Background, error) {
+	r, err := Open(executablePayload)
+	if err != nil {
+		return nil, err
+	}
+	return StartBackground(ctx, r.(*runnable), arg, reader, writer, writer, false)
+}
+
+// RunIOEBG is the background variant of RunIOE, streaming stdout and stderr to
+// separate writers while returning a Background handle for lifecycle control.
+func RunIOEBG(ctx context.Context, reader io.Reader, stdout io.Writer, stderr io.Writer, executablePayload []byte, arg ...string) (*Background, error) {
+	r, err := Open(executablePayload)
+	if err != nil {
+		return nil, err
+	}
+	return StartBackground(ctx, r.(*runnable), arg, reader, stdout, stderr, false)
+}
+
+// DoBG runs the provided script string in the background, mirroring Do but
+// returning a Background handle so callers can select on completion or cancel.
+func DoBG(ctx context.Context, payload string, arg ...string) (*Background, error) {
+	return RunBG(ctx, []byte(payload), arg...)
 }

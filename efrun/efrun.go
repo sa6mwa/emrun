@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/sa6mwa/emrun"
 	"github.com/sa6mwa/emrun/adapters/commandrunner"
 	"github.com/sa6mwa/emrun/port"
 )
@@ -21,67 +22,6 @@ import (
 var (
 	ERR_PAYLOAD_IS_EMPTY error = errors.New("payload is empty")
 )
-
-type runnable struct {
-	payload       []byte
-	file          *os.File
-	name          string
-	sha256hex     string
-	deleteOnClose bool
-	runner        port.CommandRunner
-}
-
-func sha256hex(data []byte) string {
-	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
-}
-
-func (r *runnable) Name() string {
-	return r.name
-}
-
-func (r *runnable) IsMemfd() bool {
-	return false
-}
-
-func (r *runnable) Close() error {
-	var fileCloseErr error
-	if r.file != nil {
-		fileCloseErr = r.file.Close()
-		r.file = nil
-	}
-	if r.deleteOnClose && r.name != "" {
-		if err := os.Remove(r.name); err != nil {
-			if fileCloseErr != nil {
-				return fmt.Errorf("close error: %w; remove error: %w", fileCloseErr, err)
-			}
-			return err
-		}
-		r.deleteOnClose = false
-	}
-	return fileCloseErr
-}
-
-func (r *runnable) Read(p []byte) (int, error) {
-	if r.file == nil {
-		return 0, os.ErrInvalid
-	}
-	return r.file.Read(p)
-}
-
-func (r *runnable) Seek(offset int64, whence int) (int64, error) {
-	if r.file == nil {
-		return 0, os.ErrInvalid
-	}
-	return r.file.Seek(offset, whence)
-}
-
-func (r *runnable) Run(_ context.Context, cmd *exec.Cmd, combinedOutput bool) ([]byte, error) {
-	if r.runner == nil {
-		r.runner = commandrunner.Default
-	}
-	return r.runner.Run(cmd, combinedOutput)
-}
 
 // Open writes executablePayload to a temporary executable on disk and
 // returns a runnable handle whose Name points at the file. The file
@@ -104,9 +44,11 @@ func Open(executablePayload []byte) (port.Runnable, error) {
 	if len(executablePayload) == 0 {
 		return nil, ERR_PAYLOAD_IS_EMPTY
 	}
+	sum := sha256.Sum256(executablePayload)
 	r := &runnable{
 		payload:       executablePayload,
-		sha256hex:     sha256hex(executablePayload),
+		sha256hex:     hex.EncodeToString(sum[:]),
+		sha256:        sum,
 		deleteOnClose: true,
 		runner:        commandrunner.Default,
 	}
@@ -202,4 +144,53 @@ func RunIOE(ctx context.Context, r io.Reader, stdout io.Writer, stderr io.Writer
 // (*exec.Cmd).CombinedOutput.
 func Do(ctx context.Context, payload string, arg ...string) ([]byte, error) {
 	return Run(ctx, []byte(payload), arg...)
+}
+
+// RunBG mirrors emrun.RunBG but always executes from a temporary file. The
+// Background handle allows waiting on completion via select. Example:
+//
+//	bg, err := efrun.RunBG(ctx, payload, "--flag")
+//	if err != nil {
+//		return err
+//	}
+//	defer bg.Cancel()
+//	select {
+//	case res := <-bg.Done:
+//		if res.Error != nil {
+//			return res.Error
+//		}
+//	case <-ctx.Done():
+//		return ctx.Err()
+//	}
+func RunBG(ctx context.Context, executablePayload []byte, arg ...string) (*Background, error) {
+	r, err := Open(executablePayload)
+	if err != nil {
+		return nil, err
+	}
+	return emrun.StartBackground(ctx, r.(*runnable), arg, nil, nil, nil, true)
+}
+
+// RunIOBG streams stdin/stdout/stderr via reader/writer while running in the
+// background. Combined output in the Result is nil because output is streamed.
+func RunIOBG(ctx context.Context, r io.Reader, w io.Writer, executablePayload []byte, arg ...string) (*Background, error) {
+	run, err := Open(executablePayload)
+	if err != nil {
+		return nil, err
+	}
+	return emrun.StartBackground(ctx, run.(*runnable), arg, r, w, w, false)
+}
+
+// RunIOEBG provides distinct stdout and stderr writers for background runs.
+func RunIOEBG(ctx context.Context, r io.Reader, stdout io.Writer, stderr io.Writer, executablePayload []byte, arg ...string) (*Background, error) {
+	run, err := Open(executablePayload)
+	if err != nil {
+		return nil, err
+	}
+	return emrun.StartBackground(ctx, run.(*runnable), arg, r, stdout, stderr, false)
+}
+
+// DoBG runs the inline script in the background, returning a handle identical
+// to RunBG for lifecycle management.
+func DoBG(ctx context.Context, payload string, arg ...string) (*Background, error) {
+	return RunBG(ctx, []byte(payload), arg...)
 }

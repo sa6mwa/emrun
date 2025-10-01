@@ -19,6 +19,8 @@ executes from a temporary file, which makes it portable to platforms where
   or shell helpers in a single distributable.
 - Automatically falls back to a temporary on-disk executable (deleted on close)
   when security policies forbid running the anonymous file descriptor.
+- Enforces context-driven SHA-256 allow/deny policies so bundled or perhaps
+  downloaded payloads obey explicit checksum rules before execution.
 - Swap in `efrun` when you need the same interface without memfd support—for
   example on Windows or macOS, or when policies forbid anonymous execution and
   you prefer to opt out of the memfd attempt entirely.
@@ -175,11 +177,140 @@ if err != nil {
 log.Printf("script said %q", combined.String())
 ```
 
+## Enforcing SHA-256 Policies
+
+`emrun` can restrict which embedded payloads run by attaching digest policies to
+the `context.Context`. Set a default verdict with `WithPolicy`, then register
+explicit allow or deny entries with `WithRule`. Inputs may be raw hex strings,
+`[32]byte` values, or the contents of a `sha256sum` file—filenames are ignored.
+
+```go
+ctx := emrun.WithPolicy(ctx, emrun.DENY) // default to deny unknown payloads
+
+// Load hashes from an embedded sha256sum file or explicit strings.
+ctx = emrun.WithRule(ctx, emrun.ALLOW, embeddedChecksums, "b09864fcb9...")
+
+// Run helpers consult the policy automatically.
+out, err := emrun.Run(ctx, payload)
+
+// Manual checks are available when wiring custom execution paths.
+digest := sha256.Sum256(payload)
+if err := emrun.CheckPolicy(ctx, digest, hex.EncodeToString(digest[:])); err != nil {
+    return err
+}
+```
+
+Use `WithRuleCatchError` when you need to surface parse errors instead of
+panicking—handy if the checksum material comes from user input or config files.
+
+## Background Execution
+
+`RunBG`, `RunIOBG`, `RunIOEBG`, and `DoBG` launch payloads asynchronously and
+return a `Background` handle. The handle exposes the running `Context`, a
+`Cancel` function, and a `Done` channel that delivers a `Result`. Combined
+output is only captured for `RunBG`/`DoBG`; streaming variants return `nil` in
+`Result.CombinedOutput` because stdout/stderr are already wired to callers.
+
+Simple example that runs one payload in the background and waits for it:
+
+```go
+bg, err := emrun.RunBG(ctx, payload, "--task")
+if err != nil {
+    return err
+}
+defer bg.Cancel()
+
+select {
+case res := <-bg.Done:
+    if res.Error != nil {
+        return res.Error
+    }
+    fmt.Printf("exit=%d output=%s", res.ExitCode, res.CombinedOutput)
+case <-ctx.Done():
+    return ctx.Err()
+}
+```
+
+Running multiple background commands concurrently:
+
+```go
+bg1, err := emrun.RunBG(ctx, payload1)
+if err != nil {
+    return err
+}
+bg2, err := emrun.RunIOBG(ctx, nil, os.Stdout, payload2)
+if err != nil {
+    bg1.Cancel()
+    return err
+}
+defer bg1.Cancel()
+defer bg2.Cancel()
+
+results := make(chan *emrun.Result, 2)
+collect := func(name string, bg *emrun.Background) {
+    res := bg.WaitWithContext(ctx)
+    if res.Error != nil {
+        log.Printf("%s failed: %v", name, res.Error)
+    } else {
+        log.Printf("%s exit=%d", name, res.ExitCode)
+    }
+    results <- &res
+}
+
+go collect("job1", bg1)
+go collect("job2", bg2)
+
+var firstErr error
+for i := 0; i < 2; i++ {
+    res := <-results
+    if res.Error != nil && firstErr == nil {
+        firstErr = res.Error
+    }
+}
+if firstErr != nil {
+    return firstErr
+}
+```
+
+Or coordinating a dynamic set of background jobs:
+
+```go
+backgrounds := make([]*emrun.Background, 0, len(payloads))
+for i, payload := range payloads {
+    bg, err := emrun.RunBG(ctx, payload, fmt.Sprintf("--job=%d", i))
+    if err != nil {
+        for _, b := range backgrounds {
+            b.Cancel()
+        }
+        return err
+    }
+    backgrounds = append(backgrounds, bg)
+}
+defer func() {
+    for _, bg := range backgrounds {
+        bg.Cancel()
+    }
+}()
+
+for _, bg := range backgrounds {
+    select {
+    case res := <-bg.Done:
+        if res.Error != nil {
+            return res.Error
+        }
+    case <-ctx.Done():
+        return ctx.Err()
+    }
+}
+```
+
+The same helpers exist in `efrun` if you need the portable backend.
+
 ## Selecting a Runner
 
-Both runners expose the same helpers: `Open`, `Run`, `RunIO`, `RunIOE`, and `Do`.
-Switching between them is one import change, making it easy to choose the
-execution strategy per build.
+Both runners expose the same helpers: `Open`, `Run`, `RunIO`, `RunIOE`, `Do`,
+and their background equivalents. Switching between them is one import change,
+making it easy to choose the execution strategy per build.
 
 - `github.com/sa6mwa/emrun` (Linux/Android only) prefers anonymous execution via
   `memfd_create` and auto-falls back to a secure temporary file when necessary.

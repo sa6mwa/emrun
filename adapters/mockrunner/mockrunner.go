@@ -9,7 +9,7 @@ import (
 )
 
 // Behavior represents a single command execution path for the mock runner.
-type Behavior func(cmd *exec.Cmd, combinedOutput bool) ([]byte, error)
+type Behavior func(cmd *exec.Cmd) error
 
 // Runner is a thread-safe mock implementation of the commandrunner.Runner interface.
 type Runner struct {
@@ -17,7 +17,6 @@ type Runner struct {
 	behaviors []Behavior
 	Calls     int
 	Paths     []string
-	Combined  []bool
 }
 
 var _ port.CommandRunner = (*Runner)(nil)
@@ -28,20 +27,24 @@ func New(behaviors ...Behavior) *Runner {
 }
 
 // Run records the call metadata and dispatches to the next behavior.
-func (r *Runner) Run(cmd *exec.Cmd, combinedOutput bool) ([]byte, error) {
+func (r *Runner) Run(cmd *exec.Cmd) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	r.Calls++
 	r.Paths = append(r.Paths, cmd.Path)
-	r.Combined = append(r.Combined, combinedOutput)
 
 	if len(r.behaviors) == 0 {
-		return nil, nil
+		return nil
 	}
 	behavior := r.behaviors[0]
 	r.behaviors = r.behaviors[1:]
-	return behavior(cmd, combinedOutput)
+	return behavior(cmd)
+}
+
+// Start proxies to Run for the mock implementation.
+func (r *Runner) Start(cmd *exec.Cmd) error {
+	return r.Run(cmd)
 }
 
 // Remaining returns the number of queued behaviors that have not yet been consumed.
