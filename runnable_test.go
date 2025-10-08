@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/sa6mwa/emrun/adapters/mockrunner"
+	"pkt.systems/emrun/adapters/mockrunner"
 )
 
 func TestRunnableRunFallsBackToTempfile(t *testing.T) {

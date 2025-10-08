@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/sa6mwa/emrun/port"
+	"pkt.systems/emrun/port"
 )
 
 // capture implements port.CommandCapture.

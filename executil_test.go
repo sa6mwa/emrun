@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sa6mwa/emrun/adapters/commandrunner"
-	"github.com/sa6mwa/emrun/adapters/mockrunner"
+	"pkt.systems/emrun/adapters/commandrunner"
+	"pkt.systems/emrun/adapters/mockrunner"
 )
 
 func TestRunCommandCombinedOutput(t *testing.T) {

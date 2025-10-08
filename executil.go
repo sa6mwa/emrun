@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"sync"
 
-	"github.com/sa6mwa/emrun/adapters/commandcapture"
-	"github.com/sa6mwa/emrun/port"
+	"pkt.systems/emrun/adapters/commandcapture"
+	"pkt.systems/emrun/port"
 )
 
 // RunCommand executes cmd using the supplied runner. When combinedOutput is

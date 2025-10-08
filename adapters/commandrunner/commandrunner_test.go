@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/sa6mwa/emrun/adapters/commandrunner"
+	"pkt.systems/emrun/adapters/commandrunner"
 )
 
 func TestDefaultRunnerRun(t *testing.T) {

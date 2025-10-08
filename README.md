@@ -28,12 +28,12 @@ executes from a temporary file, which makes it portable to platforms where
 ## Installation
 
 ```
-go get github.com/sa6mwa/emrun
+go get pkt.systems/emrun
 ```
 
 The `emrun` package itself only builds on Linux and Android (see the build tag
 at the top of `emrun.go`). The module also provides
-`github.com/sa6mwa/emrun/efrun`, which compiles on any platform and mirrors the
+`pkt.systems/emrun/efrun`, which compiles on any platform and mirrors the
 same helpers without using `memfd_create`.
 
 ## Quick Start
@@ -50,7 +50,7 @@ import (
     "log"
     "time"
 
-    "github.com/sa6mwa/emrun"
+    "pkt.systems/emrun"
 )
 
 func main() {
@@ -83,7 +83,7 @@ import (
     "log"
     "time"
 
-    "github.com/sa6mwa/emrun"
+    "pkt.systems/emrun"
 )
 
 //go:embed bin/busybox
@@ -127,7 +127,7 @@ import (
     "os"
     "time"
 
-    "github.com/sa6mwa/emrun"
+    "pkt.systems/emrun"
 )
 
 //go:embed scripts/upgrade.sh
@@ -312,9 +312,9 @@ Both runners expose the same helpers: `Open`, `Run`, `RunIO`, `RunIOE`, `Do`,
 and their background equivalents. Switching between them is one import change,
 making it easy to choose the execution strategy per build.
 
-- `github.com/sa6mwa/emrun` (Linux/Android only) prefers anonymous execution via
+- `pkt.systems/emrun` (Linux/Android only) prefers anonymous execution via
   `memfd_create` and auto-falls back to a secure temporary file when necessary.
-- `github.com/sa6mwa/emrun/efrun` (portable) always writes a temporary file.
+- `pkt.systems/emrun/efrun` (portable) always writes a temporary file.
 
 Internally, both return a `port.Runnable` with a shared `Run` method so you can
 depend on the interface in your own abstractions.
@@ -336,7 +336,7 @@ automatically:
 package runner
 
 import (
-    runner "github.com/sa6mwa/emrun"
+    runner "pkt.systems/emrun"
 )
 ```
 
@@ -348,7 +348,7 @@ import (
 package runner
 
 import (
-    runner "github.com/sa6mwa/emrun/efrun"
+    runner "pkt.systems/emrun/efrun"
 )
 ```
 

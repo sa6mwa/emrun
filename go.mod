@@ -1,4 +1,4 @@
-module github.com/sa6mwa/emrun
+module pkt.systems/emrun
 
 go 1.25.1
 

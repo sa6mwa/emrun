@@ -14,9 +14,9 @@ import (
 	"os"
 	"os/exec"
 
-	"github.com/sa6mwa/emrun"
-	"github.com/sa6mwa/emrun/adapters/commandrunner"
-	"github.com/sa6mwa/emrun/port"
+	"pkt.systems/emrun"
+	"pkt.systems/emrun/adapters/commandrunner"
+	"pkt.systems/emrun/port"
 )
 
 var (

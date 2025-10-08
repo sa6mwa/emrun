@@ -3,7 +3,7 @@ package commandrunner
 import (
 	"os/exec"
 
-	"github.com/sa6mwa/emrun/port"
+	"pkt.systems/emrun/port"
 )
 
 // DefaultRunner executes commands using os/exec directly.

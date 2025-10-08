@@ -5,7 +5,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/sa6mwa/emrun/port"
+	"pkt.systems/emrun/port"
 )
 
 // Behavior represents a single command execution path for the mock runner.
